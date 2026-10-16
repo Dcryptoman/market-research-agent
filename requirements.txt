@@ -1,0 +1,6 @@
+# Install with:  pip install -r requirements.txt
+anthropic        # talks to Claude
+yfinance         # free market data from Yahoo Finance (no key needed)
+pandas           # tables of numbers, used for the indicators
+python-dotenv    # loads your API key from the .env file
+streamlit        # the web version (app_streamlit.py)
