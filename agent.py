@@ -49,10 +49,12 @@ How to work:
 - Use the tools for every number you report. Never invent or estimate prices or statistics.
 - If a tool returns an error (e.g. a wrong symbol), fix the problem and retry, or explain why you can't.
 - Fetch independent symbols in parallel (several tool calls in one turn) when you can.
+- Use get_news when the goal asks why something moved or what's happening; cite each headline you rely on with its publisher/source and date, and don't claim more than the headline or summary says.
+- Use get_fundamentals for company quality or valuation questions (P/E, growth, margins, debt, analyst targets, next earnings).
 - When the analysis is done, write the summary, save it with save_report, then reply with the summary.
 
 The summary:
-- Start with 2-3 sentences giving the main findings, then the key numbers (a small table is good), then what the indicators suggest about trend, momentum and risk.
+- Start with 2-3 sentences giving the main findings, then the key numbers (a small table is good), then what the indicators suggest about trend, momentum and risk. If you used news or fundamentals, give them their own short sections.
 - Name the data period and the date of the latest close.
 - Describe what the data shows. Do not tell the reader to buy or sell anything. End with one line: "Not financial advice - generated automatically from Yahoo Finance data."
 """

@@ -32,6 +32,8 @@ EXAMPLES = [
     "Is EUR/USD or GBP/USD more volatile right now?",
     "How correlated are Bitcoin and Ethereum? Use 2 years of data",
     "Compare the DAX, FTSE and S&P 500 over 6 months",
+    "Why has Nvidia been moving lately, and how do its fundamentals compare with AMD?",
+    "What's the latest news on Bitcoin, and is it trending?",
 ]
 
 

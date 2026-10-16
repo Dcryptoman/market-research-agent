@@ -11,7 +11,7 @@ This project shows the two core agent skills:
 
 ## What this demonstrates
 
-- **Tool calling:** four Python functions are described to Claude with JSON schemas; Claude decides when to call them and with what inputs.
+- **Tool calling:** six Python functions are described to Claude with JSON schemas; Claude decides when to call them and with what inputs.
 - **A manual agent loop:** `agent.py` runs the loop itself (send → run requested tools → return results → repeat) instead of hiding it inside a framework, so every step is visible.
 - **Multi-step planning:** from one plain-English goal, the agent plans which data to fetch, which analyses to run and in what order, running independent tools in parallel.
 - **Error recovery:** tool failures (e.g. a wrong ticker) come back to Claude as error results, and it corrects itself and retries.
@@ -45,7 +45,7 @@ See [`examples/`](examples/) for two real reports it produced.
 |---|---|
 | `agent.py` | The agent loop: sends the goal and tools to Claude, runs the tools it asks for, feeds results back, and repeats. Read this to understand agents. |
 | `app_streamlit.py` | The web version: the same agent, with each step drawn live on a page. |
-| `tools.py` | The 4 tools: `get_market_data`, `analyze_symbol`, `compare_symbols`, `save_report`, plus the descriptions Claude reads to decide which one to use. |
+| `tools.py` | The 6 tools: `get_market_data`, `analyze_symbol`, `compare_symbols`, `get_news`, `get_fundamentals`, `save_report`, plus the descriptions Claude reads to decide which one to use. |
 | `reports/` | Saved summaries (created automatically). |
 | `examples/` | Two sample reports from real runs. |
 | `requirements.txt`, `.env.example` | Packages to install, and the template for your API key. |
@@ -57,6 +57,8 @@ See [`examples/`](examples/) for two real reports it produced.
 | `get_market_data` | Downloads daily prices from Yahoo Finance (free, no key). Works for stocks, crypto, forex, commodities and indices. |
 | `analyze_symbol` | Calculates the trend (20/50/200-day averages), RSI, ATR, volatility, returns over 1 week / 1 month / 3 months, and the biggest drop from a peak. |
 | `compare_symbols` | Compares several symbols side by side: return, volatility, and correlation (how closely they move together). |
+| `get_news` | Latest headlines with short summaries and dates, for a ticker, company or topic (Yahoo Finance news feed / search). Used to explain *why* something moved. |
+| `get_fundamentals` | Company fundamentals: market cap, P/E, PEG, EPS, margins, revenue and earnings growth, cash, debt, dividend, beta, analyst rating and targets, next earnings date. |
 | `save_report` | Saves the finished summary as a Markdown file. |
 
 **Safety:** the agent can only read data and save reports. There's deliberately
@@ -130,6 +132,8 @@ version; only the display is different.
 - `Is EUR/USD or GBP/USD more volatile right now?`
 - `How correlated are Bitcoin and Ethereum? Use 2 years of data`
 - `Compare the DAX, FTSE and S&P 500 over 6 months`
+- `Why has Nvidia been moving lately, and how do its fundamentals compare with AMD?`
+- `What's the latest news on Bitcoin, and is it trending?`
 
 Symbols use Yahoo Finance format, but you can just name the market and the
 agent picks the symbol. Common ones: `AAPL`, `BTC-USD`, `EURUSD=X`, `GC=F`
@@ -143,5 +147,5 @@ it about half the price.
 
 ## Ideas to extend it (good portfolio upgrades)
 
-- Add a tool, such as `get_news(symbol)` or `get_earnings_dates(symbol)`. You add a function and a description in `tools.py`, and the agent starts using it with no other changes.
+- Add a tool, such as `get_insider_trades(symbol)` or `get_options_summary(symbol)`. You add a function and a description in `tools.py`, and the agent starts using it with no other changes.
 - Add a chart tool that saves a PNG price chart into the report.

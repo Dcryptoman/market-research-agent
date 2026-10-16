@@ -18,10 +18,13 @@ import json
 import logging
 import math
 import re
-from datetime import datetime
+import xml.etree.ElementTree as ET
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 
 import pandas as pd
+import requests
 import yfinance as yf
 
 REPORTS_FOLDER = Path(__file__).parent / "reports"
@@ -181,7 +184,141 @@ def compare_symbols(symbols: list[str]) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Tool 4: save the written report
+# Tool 4: latest news headlines
+# ---------------------------------------------------------------------------
+NEWS_RSS_URL = "https://feeds.finance.yahoo.com/rss/2.0/headline"
+NEWS_SEARCH_URL = "https://query2.finance.yahoo.com/v1/finance/search"
+BROWSER_HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                                 "(KHTML, like Gecko) Chrome/130.0 Safari/537.36"}
+
+
+def _clean(text: str, limit: int = 300) -> str:
+    """Strip HTML tags/extra spaces from a summary and shorten it."""
+    text = re.sub(r"<[^>]+>", " ", text or "")
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[:limit].rsplit(" ", 1)[0] + "..."
+
+
+def _rss_news(symbol: str, limit: int) -> list[dict]:
+    """Yahoo's per-ticker RSS feed: headline, short summary, date, link."""
+    r = requests.get(NEWS_RSS_URL, params={"s": symbol, "region": "US", "lang": "en-US"},
+                     headers=BROWSER_HEADERS, timeout=15)
+    if not r.ok or "<item>" not in r.text:
+        return []
+    items = []
+    for item in ET.fromstring(r.content).iter("item"):
+        published = item.findtext("pubDate")
+        try:
+            published = parsedate_to_datetime(published).astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        except (TypeError, ValueError):
+            pass
+        items.append({"title": _clean(item.findtext("title"), 200),
+                      "summary": _clean(item.findtext("description")),
+                      "published": published, "link": item.findtext("link")})
+    return items[:limit]
+
+
+def _search_news(query: str, limit: int) -> list[dict]:
+    """Yahoo's search: works for names and topics too (e.g. 'Bitcoin')."""
+    r = requests.get(NEWS_SEARCH_URL, params={"q": query, "newsCount": limit, "quotesCount": 0},
+                     headers=BROWSER_HEADERS, timeout=15)
+    if not r.ok:
+        return []
+    return [{"title": _clean(n.get("title"), 200), "publisher": n.get("publisher"),
+             "published": datetime.fromtimestamp(n["providerPublishTime"], timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+             if n.get("providerPublishTime") else None, "link": n.get("link")}
+            for n in (r.json().get("news") or [])][:limit]
+
+
+def get_news(symbol: str, limit: int) -> dict:
+    """Latest headlines for a symbol (or a company / topic name)."""
+    query = symbol.strip()
+    try:
+        items, source = _rss_news(query.upper(), limit), "Yahoo Finance RSS"
+        if not items:
+            items, source = _search_news(query, limit), "Yahoo Finance search"
+    except (requests.RequestException, ET.ParseError, ValueError) as error:
+        raise ToolError(f"News request failed: {error}")
+    if not items:
+        raise ToolError(f"No news found for '{query}'. Try the company name or a different ticker.")
+    return {"query": query, "source": source, "count": len(items), "headlines": items,
+            "note": "Headlines and short summaries only - not the full articles."}
+
+
+# ---------------------------------------------------------------------------
+# Tool 5: company fundamentals
+# ---------------------------------------------------------------------------
+def _big_number(value):
+    """5012516765696 -> '5.01T' (easier for people and models to read)."""
+    if value is None:
+        return None
+    for size, suffix in ((1e12, "T"), (1e9, "B"), (1e6, "M")):
+        if abs(value) >= size:
+            return f"{value / size:.2f}{suffix}"
+    return f"{value:,.0f}"
+
+
+def _pct(value):
+    """Yahoo gives margins/growth as fractions: 0.276 -> 27.6."""
+    return None if value is None else round(value * 100, 1)
+
+
+def get_fundamentals(symbol: str) -> dict:
+    """Valuation, profitability, growth, balance sheet, analyst view, next earnings."""
+    symbol = symbol.strip().upper()
+    try:
+        ticker = yf.Ticker(symbol)
+        info = ticker.info or {}
+    except Exception as error:
+        raise ToolError(f"Fundamentals request failed for {symbol}: {error}")
+    if not info.get("quoteType"):
+        raise ToolError(f"No fundamentals for '{symbol}'. Check the Yahoo ticker (e.g. AAPL, MSFT, BTC-USD).")
+
+    result = {
+        "symbol": symbol, "name": info.get("longName") or info.get("shortName"),
+        "type": info.get("quoteType"), "sector": info.get("sector"), "industry": info.get("industry"),
+        "currency": info.get("currency"), "market_cap": _big_number(info.get("marketCap")),
+        "valuation": {"pe_trailing": info.get("trailingPE"), "pe_forward": info.get("forwardPE"),
+                      "peg_ratio": info.get("pegRatio"), "price_to_book": info.get("priceToBook"),
+                      "eps_trailing": info.get("trailingEps"), "eps_forward": info.get("forwardEps")},
+        "profitability_pct": {"profit_margin": _pct(info.get("profitMargins")),
+                              "operating_margin": _pct(info.get("operatingMargins")),
+                              "return_on_equity": _pct(info.get("returnOnEquity"))},
+        "growth_pct_yoy": {"revenue": _pct(info.get("revenueGrowth")), "earnings": _pct(info.get("earningsGrowth"))},
+        "financials": {"revenue_ttm": _big_number(info.get("totalRevenue")),
+                       "free_cash_flow": _big_number(info.get("freeCashflow")),
+                       "total_cash": _big_number(info.get("totalCash")),
+                       "total_debt": _big_number(info.get("totalDebt")),
+                       "debt_to_equity": info.get("debtToEquity")},
+        "dividend": {"yield_pct": info.get("dividendYield"),   # already a percentage in current Yahoo data
+                     "payout_ratio_pct": _pct(info.get("payoutRatio"))},
+        "risk": {"beta": info.get("beta"), "52w_high": info.get("fiftyTwoWeekHigh"),
+                 "52w_low": info.get("fiftyTwoWeekLow")},
+        "analysts": {"recommendation": info.get("recommendationKey"),
+                     "count": info.get("numberOfAnalystOpinions"),
+                     "target_mean": info.get("targetMeanPrice"),
+                     "target_low": info.get("targetLowPrice"), "target_high": info.get("targetHighPrice")},
+        "business_summary": _clean(info.get("longBusinessSummary"), 400) or None,
+    }
+    try:
+        calendar = ticker.calendar or {}
+        dates = calendar.get("Earnings Date") or []
+        result["next_earnings_date"] = str(dates[0]) if dates else None
+        result["ex_dividend_date"] = str(calendar.get("Ex-Dividend Date")) if calendar.get("Ex-Dividend Date") else None
+    except Exception:
+        result["next_earnings_date"] = None
+
+    # Drop empty fields so crypto / indices (which have few fundamentals) stay short.
+    def prune(d):
+        return {k: (prune(v) if isinstance(v, dict) else v) for k, v in d.items()
+                if v is not None and not (isinstance(v, dict) and not prune(v))}
+    result = prune(result)
+    result["note"] = "From Yahoo Finance; figures can lag the latest company reports by days."
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Tool 6: save the written report
 # ---------------------------------------------------------------------------
 def save_report(title: str, markdown: str) -> dict:
     """Save a Markdown report into reports/ and return where it went."""
@@ -251,6 +388,40 @@ TOOL_DEFINITIONS = [
         "strict": True,
     },
     {
+        "name": "get_news",
+        "description": (
+            "Latest news headlines (with short summaries and dates) for a ticker, company name or topic. "
+            "Use it to explain why something moved or what's happening around a market. "
+            "Headlines only - never claim more than the headline/summary says."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string", "description": "Yahoo ticker (AAPL, BTC-USD) or a name/topic"},
+                "limit": {"type": "integer", "enum": [5, 10, 15]},
+            },
+            "required": ["symbol", "limit"],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    },
+    {
+        "name": "get_fundamentals",
+        "description": (
+            "Company fundamentals for a stock: sector, market cap, P/E (trailing/forward), PEG, price/book, "
+            "EPS, margins, revenue/earnings growth, cash, debt, dividend, beta, analyst rating and price "
+            "targets, next earnings date, and a short business summary. Crypto and indices return only a "
+            "few fields."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"symbol": {"type": "string", "description": "Yahoo ticker, e.g. AAPL"}},
+            "required": ["symbol"],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    },
+    {
         "name": "save_report",
         "description": "Save the finished summary as a Markdown file in the reports folder.",
         "input_schema": {
@@ -271,6 +442,8 @@ TOOL_FUNCTIONS = {
     "get_market_data": get_market_data,
     "analyze_symbol": analyze_symbol,
     "compare_symbols": compare_symbols,
+    "get_news": get_news,
+    "get_fundamentals": get_fundamentals,
     "save_report": save_report,
 }
 
