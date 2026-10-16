@@ -5,6 +5,8 @@ over the last year"*. It plans the steps, pulls real market data, runs the
 analysis, and writes and saves a summary report. You don't have to tell it
 which steps to take.
 
+![The web app running "Compare Bitcoin, gold and the S&P 500 over the last year": the agent's plan, each tool call, and the start of its report](examples/screenshot.png)
+
 This project shows the two core agent skills:
 - **Tool calling.** The AI can't fetch data itself. It *asks* for a tool, our code runs it, and the result goes back to the AI.
 - **Multi-step reasoning.** It plans, acts, looks at the results, and decides what to do next. That includes fixing its own mistakes, like a wrong ticker symbol.
